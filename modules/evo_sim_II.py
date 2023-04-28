@@ -1,28 +1,91 @@
 import numpy as np
 from numpy.random import normal
 
-def evo_sim(tmax, theta1, tau, h, sigmaE, sigmaG, beta, rmax, perror):
 
-  # Initialize variables
-  n = np.zeros(tmax); n[0] = 2
-  x = np.zeros(tmax); x[0] = theta1 + normal(0, 0.0001)
-  w = np.zeros(tmax-1)
-  meanfit = np.zeros(tmax-1)
+def evo_sim_plast_DynTheta(pop_size, num_generations, r, K, a, initial_theta, mu, sigma, fitness_threshold, v, pR):
+    """
+    Simulate the evolution of a quantitative trait in a population over a given number of generations
+    with a time-dependent optimum trait value (theta) and plastic tolerance range (pR).
 
-  # Process Error Distribution
-  if perror == 0:
-    pdist = [0, 0]
-  else:
-    pdist = normal(0, perror)
+    Parameters
+    ----------
+    pop_size : int
+        Size of the population.
+    num_generations : int
+        Number of generations to simulate.
+    r : float
+        Maximum fitness at low density with an optimal phenotype.
+    K : float
+        Carrying capacity.
+    a : float
+        Strength of stabilizing selection.
+    initial_theta : float
+        Initial optimal trait value for an environment.
+    mu : float
+        Mean of the initial population distribution.
+    sigma : float
+        Standard deviation of the initial population distribution.
+    fitness_threshold : float
+        Minimum fitness required for an individual to survive and reproduce.
+    v : float
+        Rate of environmental change.
+    pR : float
+        Plastic tolerance range, the equidistant range around the trait value where the fitness
+        is not affected by stabilizing selection.
 
-  def rfunc(mu, theta):
-    r = rmax*tau*(np.exp(-((theta-mu)**2)/(2*((sigmaE**2 + sigmaG**2)+tau**2))))/(np.sqrt(tau**2+(sigmaE**2 + sigmaG**2)))
-    return r
+    Returns
+    -------
+    mean_trait : list
+        List of mean trait values per generation.
+    population_size : list
+        List of population sizes per generation.
+    mean_fitness : list
+        List of mean fitness values per generation.
+    """
+    # Initialize population
+    pop = np.random.normal(loc=mu, scale=sigma, size=pop_size)
 
-  for t in range(tmax-1):
-    w[t] = (n[t]-1)/(n[t]-1+m)
-    n[t+1] = ((rfunc(w[t]*x[t] + (1-w[t])*theta1, theta1) + normal(0, pdist))*(n[t]))*np.exp(-beta*(n[t]))
-    meanfit[t] = (theta1 - w[t]*x[t] - (1-w[t])*theta1)/((sigmaE**2 + sigmaG**2) + tau**2)
-    x[t+1] = w[t]*x[t] + (1-w[t])*theta1 + (h)*((sigmaG**2))*meanfit[t]
+    # Simulate evolution
+    mean_trait = []
+    population_size = []
+    mean_fitness = []
+    for gen in range(num_generations):
+        # Update optimal trait value based on time
+        theta = initial_theta + v * gen
 
-  return n, x, w
+        # Calculate centerDist
+        centerDist = pop - theta
+
+        # Calculate the expressed trait value based on the centerDist and pR
+        expressed_trait = np.where(np.abs(centerDist) > pR, centerDist - np.sign(centerDist) * pR, 0) + theta
+
+
+        # Calculate fitness based on the new fitness calculation
+        w = r * (1 - (pop_size / K)) - (a / 2) * expressed_trait**2
+        w = np.exp(w)  # Convert to probability
+
+        # Survival and reproduction based on fitness threshold
+        survivors = pop[w >= fitness_threshold]
+        if len(survivors) == 0:
+            # Extinction occurs
+            break
+
+        w = w[w >= fitness_threshold]
+        w /= np.sum(w)
+
+        # Select parents
+        parents = np.random.choice(survivors, size=len(survivors), p=w, replace=True)
+
+        # Create offspring + ADD PERTURBATION HERE !!!
+        offspring = np.random.normal(loc=parents, scale=sigma, size=len(parents))
+
+        # Update population
+        pop = offspring
+        pop_size = len(pop)
+
+        # Store mean trait, population size, and mean fitness
+        mean_trait.append(np.mean(pop))
+        population_size.append(pop_size)
+        mean_fitness.append(np.mean(w))
+
+    return mean_trait, population_size, mean_fitness
